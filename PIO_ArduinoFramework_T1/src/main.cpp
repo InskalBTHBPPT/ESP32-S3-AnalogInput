@@ -30,9 +30,11 @@
 
 // ============== KONFIGURASI INTERVAL ==============
 #define READ_INTERVAL_MS    100         // Interval pembacaan (ms)
+#define VREF_DISPLAY_INTERVAL_MS  1000  // Interval tampilan VREF (ms)
 
 // ============== VARIABEL GLOBAL ==============
 unsigned long previousMillis = 0;
+unsigned long previousVrefMillis = 0;
 
 // Buffer untuk analogRead (raw value 0-4095)
 int rawBuffer[SAMPLE_COUNT_10];
@@ -46,6 +48,7 @@ bool mVBufferFull = false;
 
 // ============== FUNGSI PROTOTYPES ==============
 float rawToVoltage(int adcValue);
+float calculateEffectiveVREF(int rawValue, uint32_t mVValue);
 void addRawSample(int value);
 void addMvSample(uint32_t value);
 int getRawAverage(int count);
@@ -53,6 +56,7 @@ uint32_t getMvAverage(int count);
 void printHeader();
 void printResults(int rawDirect, int rawAvg5, int rawAvg10,
                   uint32_t mVDirect, uint32_t mVAvg5, uint32_t mVAvg10);
+void printVREF(float vref);
 
 void setup() {
   // Inisialisasi Serial
@@ -74,6 +78,11 @@ void setup() {
   Serial.println("Versi B: analogReadMilliVolts()");
   Serial.println("  - Return: 0-3100 mV (terkalibrasi)");
   Serial.println("  - Lebih akurat karena menggunakan kalibrasi internal chip");
+  Serial.println();
+  Serial.println("VREF Calculation:");
+  Serial.println("  - Metode: Hitung dari perbandingan raw dan mV");
+  Serial.println("  - Rumus: VREF = (mV * 4095) / (raw * 1000)");
+  Serial.println("  - Ditampilkan setiap 1 detik");
   Serial.println("=======================================================================");
   Serial.println();
   
@@ -114,6 +123,18 @@ void loop() {
     
     // Tampilkan hasil
     printResults(rawDirect, rawAvg5, rawAvg10, mVDirect, mVAvg5, mVAvg10);
+    
+    // Tampilkan VREF efektif setiap 1 detik
+    unsigned long currentVrefMillis = millis();
+    if (currentVrefMillis - previousVrefMillis >= VREF_DISPLAY_INTERVAL_MS) {
+      previousVrefMillis = currentVrefMillis;
+      
+      // Hitung VREF dari nilai langsung dan rata-rata
+      float vrefDirect = calculateEffectiveVREF(rawDirect, mVDirect);
+      float vrefAvg10 = calculateEffectiveVREF(rawAvg10, mVAvg10);
+      
+      printVREF(vrefAvg10); // Gunakan avg10 untuk lebih stabil
+    }
   }
 }
 
@@ -124,6 +145,22 @@ void loop() {
  */
 float rawToVoltage(int adcValue) {
   return (adcValue * ADC_VREF) / (float)((1 << ADC_RESOLUTION) - 1);
+}
+
+/**
+ * Hitung VREF efektif dari perbandingan raw dan mV (Metode 1)
+ * Rumus: VREF = (mV * 4095) / (raw * 1000)
+ * 
+ * @param rawValue Nilai ADC raw (0-4095)
+ * @param mVValue Nilai ADC dalam mV (terkalibrasi)
+ * @return VREF efektif dalam Volt, atau 0 jika rawValue = 0
+ */
+float calculateEffectiveVREF(int rawValue, uint32_t mVValue) {
+  if (rawValue == 0) {
+    return 0.0;
+  }
+  // VREF = (mV * 4095) / (raw * 1000)
+  return (mVValue * 4095.0) / (rawValue * 1000.0);
 }
 
 /**
@@ -238,4 +275,16 @@ void printResults(int rawDirect, int rawAvg5, int rawAvg10,
                 millis(),
                 rawDirect, voltDirect, rawAvg5, voltAvg5, rawAvg10, voltAvg10,
                 mVDirect, mVvoltDirect, mVAvg5, mVvoltAvg5, mVAvg10, mVvoltAvg10);
+}
+
+/**
+ * Tampilkan VREF efektif yang dihitung
+ * @param vref Nilai VREF dalam Volt
+ */
+void printVREF(float vref) {
+  Serial.println("├─────────────┴──────────────────┴──────────────────┴──────────────────────────┴──────────────────┴──────────────────┴──────────────────────────┤");
+  Serial.printf("│ Effective VREF (calculated from Avg10): %6.3fV (assumed: %.1fV) │\n", vref, ADC_VREF);
+  Serial.println("└───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘");
+  Serial.println();
+  printHeader();
 }
