@@ -72,7 +72,7 @@ bool mVBufferFull = false;
 static bool adc_calibration_init(void);
 static void adc_init(void);
 static float rawToVoltage(int adcValue);
-static float calculateEffectiveVREF(int rawValue, uint32_t mVValue);
+// static float calculateEffectiveVREF(int rawValue, uint32_t mVValue);  // COMMENTED OUT - tidak digunakan
 static void addRawSample(int value);
 static void addMvSample(uint32_t value);
 static int getRawAverage(int count);
@@ -139,20 +139,47 @@ static float rawToVoltage(int adcValue)
 
 /**
  * Hitung VREF efektif dari perbandingan raw dan mV (Metode 1)
+ * 
+ * Fungsi ini menghitung VREF efektif dengan membandingkan nilai raw ADC
+ * (tidak terkalibrasi) dengan nilai terkalibrasi dalam mV.
+ * 
  * Rumus: VREF = (mV * 4095) / (raw * 1000)
  * 
- * @param rawValue Nilai ADC raw (0-4095)
- * @param mVValue Nilai ADC dalam mV (terkalibrasi)
+ * Penjelasan:
+ * - mV adalah nilai terkalibrasi dari adc_cali_raw_to_voltage()
+ * - raw adalah nilai ADC mentah (0-4095 untuk 12-bit)
+ * - 4095 adalah nilai maksimum ADC (2^12 - 1)
+ * - 1000 adalah konversi dari mV ke Volt
+ * 
+ * Catatan Penting:
+ * - VREF efektif ini BERVARIASI tergantung input voltage
+ * - Ini normal karena kalibrasi internal menggunakan polynomial curve fitting,
+ *   bukan VREF linier tunggal
+ * - VREF efektif ini adalah pendekatan linier sederhana dari kalibrasi kompleks
+ * 
+ * @param rawValue Nilai ADC raw (0-4095 untuk 12-bit)
+ * @param mVValue Nilai ADC dalam mV (terkalibrasi dari adc_cali_raw_to_voltage)
  * @return VREF efektif dalam Volt, atau 0 jika rawValue = 0
+ * 
+ * Contoh:
+ *   rawValue = 2048, mVValue = 1650
+ *   VREF = (1650 * 4095) / (2048 * 1000) = 3.297V
  */
+/*
 static float calculateEffectiveVREF(int rawValue, uint32_t mVValue)
 {
+    // Cek pembagi nol
     if (rawValue == 0) {
         return 0.0f;
     }
-    // VREF = (mV * 4095) / (raw * 1000)
+    
+    // Rumus: VREF = (mV * 4095) / (raw * 1000)
+    // - mVValue * 4095: skala mV ke resolusi ADC penuh
+    // - rawValue * 1000: konversi raw ke mV (asumsi linier) lalu ke Volt
+    // Hasil: VREF efektif dalam Volt
     return (mVValue * 4095.0f) / (rawValue * 1000.0f);
 }
+*/
 
 /**
  * Tambahkan sample ke circular buffer (Versi A - raw)
@@ -319,6 +346,8 @@ static void adc_read_task(void *pvParameters)
             uint32_t mVAvg10 = getMvAverage(SAMPLE_COUNT_10);
             
             // Hitung VREF efektif setiap 1 detik (menggunakan avg10 untuk lebih stabil)
+            // COMMENTED OUT - fungsi calculateEffectiveVREF tidak digunakan
+            /*
             TickType_t currentVrefTick = xTaskGetTickCount();
             if ((currentVrefTick - previousVrefTick) >= pdMS_TO_TICKS(VREF_DISPLAY_INTERVAL_MS)) {
                 previousVrefTick = currentVrefTick;
@@ -329,6 +358,10 @@ static void adc_read_task(void *pvParameters)
             if (lastVREF == 0.0f && rawAvg10 > 0) {
                 lastVREF = calculateEffectiveVREF(rawAvg10, mVAvg10);
             }
+            */
+            
+            // Set VREF ke 0 karena fungsi calculateEffectiveVREF di-comment out
+            lastVREF = 0.0f;
             
             // Tampilkan hasil dalam format CSV
             printResults(rawDirect, rawAvg5, rawAvg10, mVDirect, mVAvg5, mVAvg10);
