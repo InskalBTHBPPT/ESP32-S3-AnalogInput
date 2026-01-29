@@ -50,9 +50,9 @@ static const char *TAG = "ADC_Demo";
 #define VREF_DISPLAY_INTERVAL_MS  1000        // Interval tampilan VREF (ms)
 
 // ============== VARIABEL GLOBAL ==============
-TickType_t previousTick = 0;
-TickType_t previousVrefTick = 0;
-float lastVREF = 0.0f;  // Menyimpan VREF terakhir yang dihitung
+// TickType_t previousTick = 0;  // Tidak digunakan lagi - menggunakan vTaskDelayUntil
+// TickType_t previousVrefTick = 0;  // Tidak digunakan - VREF calculation di-comment out
+float lastVREF = 0.0f;  // Menyimpan VREF terakhir yang dihitung (tidak digunakan, di-comment out)
 
 // ADC handles
 adc_oneshot_unit_handle_t adc1_handle = NULL;
@@ -314,70 +314,66 @@ static void adc_read_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "ADC read task started");
     
+    // Inisialisasi waktu untuk vTaskDelayUntil
+    TickType_t xLastWakeTime = xTaskGetTickCount();
+    const TickType_t xFrequency = pdMS_TO_TICKS(READ_INTERVAL_MS);
+    
     while (1) {
-        TickType_t currentTick = xTaskGetTickCount();
+        // Gunakan vTaskDelayUntil untuk timing yang akurat dan tidak memblokir IDLE task
+        vTaskDelayUntil(&xLastWakeTime, xFrequency);
         
-        // Non-blocking interval menggunakan FreeRTOS ticks
-        if ((currentTick - previousTick) >= pdMS_TO_TICKS(READ_INTERVAL_MS)) {
-            previousTick = currentTick;
-            
-            // ===== VERSI A: adc_oneshot_read() - Raw Value =====
-            int rawDirect = 0;
-            esp_err_t ret = adc_oneshot_read(adc1_handle, ADC_CHANNEL, &rawDirect);
-            if (ret != ESP_OK) {
-                ESP_LOGE(TAG, "ADC read failed: %s", esp_err_to_name(ret));
-                vTaskDelay(pdMS_TO_TICKS(READ_INTERVAL_MS));
-                continue;
-            }
-            
-            addRawSample(rawDirect);
-            int rawAvg5 = getRawAverage(SAMPLE_COUNT_5);
-            int rawAvg10 = getRawAverage(SAMPLE_COUNT_10);
-            
-            // ===== VERSI B: adc_cali_raw_to_voltage() - Calibrated mV =====
-            uint32_t mVDirect = 0;
-            if (adc_cali_handle != NULL) {
-                int voltage_mv = 0;
-                ret = adc_cali_raw_to_voltage(adc_cali_handle, rawDirect, &voltage_mv);
-                if (ret == ESP_OK) {
-                    mVDirect = (uint32_t)voltage_mv;
-                } else {
-                    ESP_LOGW(TAG, "ADC calibration failed: %s", esp_err_to_name(ret));
-                    mVDirect = 0;
-                }
-            } else {
-                // Jika kalibrasi tidak tersedia, konversi manual
-                mVDirect = (uint32_t)(rawToVoltage(rawDirect) * 1000.0f);
-            }
-            
-            addMvSample(mVDirect);
-            uint32_t mVAvg5 = getMvAverage(SAMPLE_COUNT_5);
-            uint32_t mVAvg10 = getMvAverage(SAMPLE_COUNT_10);
-            
-            // Hitung VREF efektif setiap 1 detik (menggunakan avg10 untuk lebih stabil)
-            // COMMENTED OUT - fungsi calculateEffectiveVREF tidak digunakan
-            /*
-            TickType_t currentVrefTick = xTaskGetTickCount();
-            if ((currentVrefTick - previousVrefTick) >= pdMS_TO_TICKS(VREF_DISPLAY_INTERVAL_MS)) {
-                previousVrefTick = currentVrefTick;
-                lastVREF = calculateEffectiveVREF(rawAvg10, mVAvg10);
-            }
-            
-            // Jika VREF belum pernah dihitung, hitung dari nilai saat ini
-            if (lastVREF == 0.0f && rawAvg10 > 0) {
-                lastVREF = calculateEffectiveVREF(rawAvg10, mVAvg10);
-            }
-            */
-            
-            // Set VREF ke 0 karena fungsi calculateEffectiveVREF di-comment out
-            lastVREF = 0.0f;
-            
-            // Tampilkan hasil dalam format CSV
-            printResults(rawDirect, rawAvg5, rawAvg10, mVDirect, mVAvg5, mVAvg10);
+        // ===== VERSI A: adc_oneshot_read() - Raw Value =====
+        int rawDirect = 0;
+        esp_err_t ret = adc_oneshot_read(adc1_handle, ADC_CHANNEL, &rawDirect);
+        if (ret != ESP_OK) {
+            ESP_LOGE(TAG, "ADC read failed: %s", esp_err_to_name(ret));
+            continue;
         }
         
-        // Yield CPU untuk task lain
-        vTaskDelay(pdMS_TO_TICKS(1));
+        addRawSample(rawDirect);
+        int rawAvg5 = getRawAverage(SAMPLE_COUNT_5);
+        int rawAvg10 = getRawAverage(SAMPLE_COUNT_10);
+        
+        // ===== VERSI B: adc_cali_raw_to_voltage() - Calibrated mV =====
+        uint32_t mVDirect = 0;
+        if (adc_cali_handle != NULL) {
+            int voltage_mv = 0;
+            ret = adc_cali_raw_to_voltage(adc_cali_handle, rawDirect, &voltage_mv);
+            if (ret == ESP_OK) {
+                mVDirect = (uint32_t)voltage_mv;
+            } else {
+                ESP_LOGW(TAG, "ADC calibration failed: %s", esp_err_to_name(ret));
+                mVDirect = 0;
+            }
+        } else {
+            // Jika kalibrasi tidak tersedia, konversi manual
+            mVDirect = (uint32_t)(rawToVoltage(rawDirect) * 1000.0f);
+        }
+        
+        addMvSample(mVDirect);
+        uint32_t mVAvg5 = getMvAverage(SAMPLE_COUNT_5);
+        uint32_t mVAvg10 = getMvAverage(SAMPLE_COUNT_10);
+        
+        // Hitung VREF efektif setiap 1 detik (menggunakan avg10 untuk lebih stabil)
+        // COMMENTED OUT - fungsi calculateEffectiveVREF tidak digunakan
+        /*
+        TickType_t currentVrefTick = xTaskGetTickCount();
+        if ((currentVrefTick - previousVrefTick) >= pdMS_TO_TICKS(VREF_DISPLAY_INTERVAL_MS)) {
+            previousVrefTick = currentVrefTick;
+            lastVREF = calculateEffectiveVREF(rawAvg10, mVAvg10);
+        }
+        
+        // Jika VREF belum pernah dihitung, hitung dari nilai saat ini
+        if (lastVREF == 0.0f && rawAvg10 > 0) {
+            lastVREF = calculateEffectiveVREF(rawAvg10, mVAvg10);
+        }
+        */
+        
+        // Set VREF ke 0 karena fungsi calculateEffectiveVREF di-comment out
+        lastVREF = 0.0f;
+        
+        // Tampilkan hasil dalam format CSV
+        printResults(rawDirect, rawAvg5, rawAvg10, mVDirect, mVAvg5, mVAvg10);
     }
 }
 
