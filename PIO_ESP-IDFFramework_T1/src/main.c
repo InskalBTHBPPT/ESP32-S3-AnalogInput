@@ -272,7 +272,9 @@ static uint32_t getMvAverage(int count)
  */
 static void printHeader(void)
 {
-    printf("Timestamp(ms),Raw_Direct,Raw_Avg5,Raw_Avg10,Volt_Direct,Volt_Avg5,Volt_Avg10,mV_Direct,mV_Avg5,mV_Avg10,Effective_VREF\n");
+    // Effective_VREF di-comment out
+    // printf("Timestamp(ms),Raw_Direct,Raw_Avg5,Raw_Avg10,Volt_Direct,Volt_Avg5,Volt_Avg10,mV_Direct,mV_Avg5,mV_Avg10,Effective_VREF\n");
+    printf("Timestamp(ms),Raw_Direct,Raw_Avg5,Raw_Avg10,Volt_Direct,Volt_Avg5,Volt_Avg10,mV_Direct,mV_Avg5,mV_Avg10\n");
 }
 
 /**
@@ -286,16 +288,23 @@ static void printResults(int rawDirect, int rawAvg5, int rawAvg10,
     float voltAvg5 = rawToVoltage(rawAvg5);
     float voltAvg10 = rawToVoltage(rawAvg10);
     
-    // Format CSV: Timestamp,Raw_Direct,Raw_Avg5,Raw_Avg10,Volt_Direct,Volt_Avg5,Volt_Avg10,mV_Direct,mV_Avg5,mV_Avg10,Effective_VREF
+    // Format CSV: Timestamp,Raw_Direct,Raw_Avg5,Raw_Avg10,Volt_Direct,Volt_Avg5,Volt_Avg10,mV_Direct,mV_Avg5,mV_Avg10
+    // Effective_VREF di-comment out
+    // Format CSV (old): Timestamp,Raw_Direct,Raw_Avg5,Raw_Avg10,Volt_Direct,Volt_Avg5,Volt_Avg10,mV_Direct,mV_Avg5,mV_Avg10,Effective_VREF
     TickType_t currentTick = xTaskGetTickCount();
     uint32_t timestamp_ms = (currentTick * 1000) / configTICK_RATE_HZ;
     
-    printf("%lu,%d,%d,%d,%.3f,%.3f,%.3f,%lu,%lu,%lu,%.3f\n",
+    // printf("%lu,%d,%d,%d,%.3f,%.3f,%.3f,%lu,%lu,%lu,%.3f\n",
+    //        timestamp_ms,
+    //        rawDirect, rawAvg5, rawAvg10,
+    //        voltDirect, voltAvg5, voltAvg10,
+    //        mVDirect, mVAvg5, mVAvg10,
+    //        lastVREF);
+    printf("%lu,%d,%d,%d,%.3f,%.3f,%.3f,%lu,%lu,%lu\n",
            timestamp_ms,
            rawDirect, rawAvg5, rawAvg10,
            voltDirect, voltAvg5, voltAvg10,
-           mVDirect, mVAvg5, mVAvg10,
-           lastVREF);
+           mVDirect, mVAvg5, mVAvg10);
 }
 
 /**
@@ -391,11 +400,14 @@ void app_main(void)
     ESP_LOGI(TAG, "  - Return: 0-3100 mV (terkalibrasi)");
     ESP_LOGI(TAG, "  - Lebih akurat karena menggunakan kalibrasi internal chip");
     ESP_LOGI(TAG, "");
+    // VREF Calculation di-comment out - tidak digunakan
+    /*
     ESP_LOGI(TAG, "VREF Calculation:");
     ESP_LOGI(TAG, "  - Metode: Hitung dari perbandingan raw dan mV");
     ESP_LOGI(TAG, "  - Rumus: VREF = (mV * 4095) / (raw * 1000)");
     ESP_LOGI(TAG, "  - Format Output: CSV");
     ESP_LOGI(TAG, "  - VREF dihitung setiap 1 detik, ditampilkan di setiap baris");
+    */
     ESP_LOGI(TAG, "=======================================================================");
     ESP_LOGI(TAG, "");
     
