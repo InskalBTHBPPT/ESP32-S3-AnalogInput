@@ -1,9 +1,9 @@
 /**
  * ESP32-S3 Analog Input Demo
- * 3 Versi Pembacaan ADC:
- * - Versi 1: Tanpa Averaging (GPIO4)
- * - Versi 2: Averaging 5 Sample (GPIO5)
- * - Versi 3: Averaging 10 Sample (GPIO6)
+ * 1 GPIO dengan 3 Output berbeda:
+ * - Output 1: Pembacaan langsung (tanpa averaging)
+ * - Output 2: Averaging 5 sample
+ * - Output 3: Averaging 10 sample
  * 
  * Pin ADC1 yang aman: GPIO1, GPIO2, GPIO4-GPIO10
  * Hindari GPIO3 (strapping pin)
@@ -13,15 +13,13 @@
 #include <Arduino.h>
 
 // ============== KONFIGURASI PIN ADC1 ==============
-#define ADC_PIN_NO_AVG      4   // Versi 1: Tanpa averaging
-#define ADC_PIN_AVG_5       5   // Versi 2: Averaging 5 sample
-#define ADC_PIN_AVG_10      6   // Versi 3: Averaging 10 sample
+#define ADC_PIN             4           // Satu GPIO untuk semua pembacaan
 
 // ============== KONFIGURASI ADC ==============
 #define ADC_RESOLUTION      12          // 12-bit (0-4095)
 #define ADC_VREF            3.3         // Tegangan referensi (Volt)
-#define SAMPLE_COUNT_5      5           // Jumlah sample untuk averaging versi 2
-#define SAMPLE_COUNT_10     10          // Jumlah sample untuk averaging versi 3
+#define SAMPLE_COUNT_5      5           // Jumlah sample untuk averaging 5
+#define SAMPLE_COUNT_10     10          // Jumlah sample untuk averaging 10
 
 // ============== KONFIGURASI INTERVAL ==============
 #define READ_INTERVAL_MS    100         // Interval pembacaan (ms)
@@ -29,11 +27,16 @@
 // ============== VARIABEL GLOBAL ==============
 unsigned long previousMillis = 0;
 
+// Buffer untuk menyimpan sample
+int sampleBuffer[SAMPLE_COUNT_10];
+int sampleIndex = 0;
+bool bufferFull = false;
+
 // ============== FUNGSI PROTOTYPES ==============
 float adcToVoltage(int adcValue);
-int readADC_NoAveraging(int pin);
-int readADC_Averaging(int pin, int sampleCount);
-void printResults(int raw1, float volt1, int raw2, float volt2, int raw3, float volt3);
+void addSample(int value);
+int getAverage(int count);
+void printResults(int rawDirect, int rawAvg5, int rawAvg10);
 
 void setup() {
   // Inisialisasi Serial
@@ -43,14 +46,15 @@ void setup() {
   }
   
   Serial.println();
-  Serial.println("========================================");
-  Serial.println("   ESP32-S3 ADC Demo - 3 Versi");
-  Serial.println("========================================");
-  Serial.println("Pin ADC1 yang digunakan:");
-  Serial.printf("  - GPIO%d: Tanpa Averaging\n", ADC_PIN_NO_AVG);
-  Serial.printf("  - GPIO%d: Averaging 5 Sample\n", ADC_PIN_AVG_5);
-  Serial.printf("  - GPIO%d: Averaging 10 Sample\n", ADC_PIN_AVG_10);
-  Serial.println("========================================");
+  Serial.println("================================================");
+  Serial.println("   ESP32-S3 ADC Demo - 1 GPIO, 3 Output");
+  Serial.println("================================================");
+  Serial.printf("Pin ADC1: GPIO%d\n", ADC_PIN);
+  Serial.println("Output:");
+  Serial.println("  1. Langsung (tanpa averaging)");
+  Serial.println("  2. Averaging 5 sample");
+  Serial.println("  3. Averaging 10 sample");
+  Serial.println("================================================");
   Serial.println();
   
   // Set resolusi ADC (9-12 bit, default 12-bit)
@@ -60,7 +64,12 @@ void setup() {
   // ADC_0db: 0-1.1V, ADC_2_5db: 0-1.5V, ADC_6db: 0-2.2V, ADC_11db: 0-3.3V
   analogSetAttenuation(ADC_11db);
   
-  Serial.println("Timestamp(ms) | No Avg (GPIO4)      | Avg 5 (GPIO5)       | Avg 10 (GPIO6)");
+  // Inisialisasi buffer dengan 0
+  for (int i = 0; i < SAMPLE_COUNT_10; i++) {
+    sampleBuffer[i] = 0;
+  }
+  
+  Serial.println("Timestamp(ms) | Langsung            | Avg 5 Sample        | Avg 10 Sample");
   Serial.println("--------------|---------------------|---------------------|--------------------");
 }
 
@@ -71,23 +80,19 @@ void loop() {
   if (currentMillis - previousMillis >= READ_INTERVAL_MS) {
     previousMillis = currentMillis;
     
-    // ===== VERSI 1: Tanpa Averaging =====
-    int rawValue1 = readADC_NoAveraging(ADC_PIN_NO_AVG);
-    float voltage1 = adcToVoltage(rawValue1);
+    // Baca nilai ADC dari satu GPIO
+    int rawDirect = analogRead(ADC_PIN);
     
-    // ===== VERSI 2: Averaging 5 Sample =====
-    int rawValue2 = readADC_Averaging(ADC_PIN_AVG_5, SAMPLE_COUNT_5);
-    float voltage2 = adcToVoltage(rawValue2);
+    // Simpan ke buffer untuk averaging
+    addSample(rawDirect);
     
-    // ===== VERSI 3: Averaging 10 Sample =====
-    int rawValue3 = readADC_Averaging(ADC_PIN_AVG_10, SAMPLE_COUNT_10);
-    float voltage3 = adcToVoltage(rawValue3);
+    // Hitung averaging
+    int rawAvg5 = getAverage(SAMPLE_COUNT_5);
+    int rawAvg10 = getAverage(SAMPLE_COUNT_10);
     
     // Tampilkan hasil
-    printResults(rawValue1, voltage1, rawValue2, voltage2, rawValue3, voltage3);
+    printResults(rawDirect, rawAvg5, rawAvg10);
   }
-  
-  // Kode lain bisa berjalan di sini tanpa terblokir
 }
 
 /**
@@ -100,35 +105,56 @@ float adcToVoltage(int adcValue) {
 }
 
 /**
- * VERSI 1: Pembacaan ADC tanpa averaging
- * @param pin Pin GPIO yang akan dibaca
- * @return Nilai ADC mentah
+ * Tambahkan sample ke circular buffer
+ * @param value Nilai ADC yang akan disimpan
  */
-int readADC_NoAveraging(int pin) {
-  return analogRead(pin);
+void addSample(int value) {
+  sampleBuffer[sampleIndex] = value;
+  sampleIndex++;
+  
+  if (sampleIndex >= SAMPLE_COUNT_10) {
+    sampleIndex = 0;
+    bufferFull = true;
+  }
 }
 
 /**
- * VERSI 2 & 3: Pembacaan ADC dengan averaging
- * @param pin Pin GPIO yang akan dibaca
- * @param sampleCount Jumlah sample untuk di-rata-rata
- * @return Nilai ADC rata-rata
+ * Hitung rata-rata dari buffer
+ * @param count Jumlah sample yang akan di-rata-rata (5 atau 10)
+ * @return Nilai rata-rata, atau nilai terakhir jika buffer belum cukup
  */
-int readADC_Averaging(int pin, int sampleCount) {
-  long sum = 0;
+int getAverage(int count) {
+  int availableSamples = bufferFull ? SAMPLE_COUNT_10 : sampleIndex;
   
-  for (int i = 0; i < sampleCount; i++) {
-    sum += analogRead(pin);
-    delayMicroseconds(100);  // Delay kecil antar pembacaan
+  // Jika sample belum cukup, gunakan yang tersedia
+  if (availableSamples < count) {
+    count = availableSamples;
   }
   
-  return (int)(sum / sampleCount);
+  if (count == 0) {
+    return 0;
+  }
+  
+  long sum = 0;
+  int startIdx = sampleIndex - count;
+  
+  for (int i = 0; i < count; i++) {
+    // Circular buffer: handle index negatif
+    int idx = (startIdx + i + SAMPLE_COUNT_10) % SAMPLE_COUNT_10;
+    sum += sampleBuffer[idx];
+  }
+  
+  return (int)(sum / count);
 }
 
 /**
  * Tampilkan hasil pembacaan ke Serial Monitor
  */
-void printResults(int raw1, float volt1, int raw2, float volt2, int raw3, float volt3) {
+void printResults(int rawDirect, int rawAvg5, int rawAvg10) {
+  float voltDirect = adcToVoltage(rawDirect);
+  float voltAvg5 = adcToVoltage(rawAvg5);
+  float voltAvg10 = adcToVoltage(rawAvg10);
+  
   Serial.printf("%13lu | %4d = %6.3fV     | %4d = %6.3fV     | %4d = %6.3fV\n",
-                millis(), raw1, volt1, raw2, volt2, raw3, volt3);
+                millis(), rawDirect, voltDirect, rawAvg5, voltAvg5, rawAvg10, voltAvg10);
 }
